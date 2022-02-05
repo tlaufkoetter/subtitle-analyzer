@@ -3,7 +3,6 @@ import os
 from typing import Generator
 import lemmagen3
 import re
-import requests
 
 lt_pl = lemmagen3.Lemmatizer('pl')
 
@@ -11,26 +10,12 @@ lt_pl = lemmagen3.Lemmatizer('pl')
 class SentenceContext:
     def __init__(self, sentence, start, end):
         self.sentence = sentence
-        self.before = None
-        self.after = None
         self.start = start
         self.end = end
         self.translation = None
 
     def __str__(self) -> str:
-        text = ""
-        if self.before:
-            text += self.before + "\n"
-
-        text += self.sentence
-
-        if self.after:
-            text += "\n" + self.after
-
         return self.sentence
-
-    def __lt__(self, other):
-        return self.start < other.start
 
 
 class WordOccurance:
@@ -38,7 +23,6 @@ class WordOccurance:
         self.count = 0
         self.word = word
         self.forms = {}
-        self.sentences = {}
         self.sentence_contexts = []
 
     def add(self, form, sentence_context: SentenceContext):
@@ -53,10 +37,9 @@ class WordOccurance:
     def _average(self, lis):
         return sum(lis) / len(lis)
 
-    def get_context(self, word_occurances):
+    def get_context(self, word_occurances) -> SentenceContext:
         di = ((context, sum([(word_occurances.get(lt_pl.lemmatize(word.lower())) or 0) for word in re.split(
             r'\W+', str(context))])) for context in self.sentence_contexts)
-        # di = ((context, len(str(context))) for context in self.sentence_contexts)
         return max(di, key=lambda c: c[1])[0]
 
 
@@ -72,16 +55,16 @@ class WordCounter:
         self.subtitles_dir = subtitles_dir
         self.black_list_file_name = black_list_file_name
 
-    def _process_lines(self, lines, translated_lines):
+    def _get_translated_sentences(self, translated_lines):
         has_started = False
-
-        translated_sentences = []
         start = (0, 0, 0, 0)
         end = (0, 0, 0, 0)
         this_sentence = None
+        sentences = []
         for line in translated_lines:
             if re.match(r'^\s*$', line):
-                translated_sentences.append((this_sentence, start, end))
+                if this_sentence:
+                    sentences.append((this_sentence, start, end))
                 has_started = False
                 start = (0, 0, 0, 0)
                 end = (0, 0, 0, 0)
@@ -107,10 +90,58 @@ class WordCounter:
             elif re.match(r'^\d+$', line):
                 has_started = True
 
-        has_started = False
-        previous_line = None
+        return sentences
 
-        sentences = [None]
+    def _is_between(self, lower_bound, value, upper_bound):
+        return lower_bound <= value and value <= upper_bound
+
+    def _find_translation(self, translated_sentences, sentence_context):
+        ft = None
+        lt = None
+        found = True
+        for i, trans in enumerate(translated_sentences):
+            if self._is_between(trans[1], sentence_context.start, trans[2]) or self._is_between(sentence_context.start, trans[1], sentence_context.end):
+                ft = i, trans[0]
+            if self._is_between(trans[1], sentence_context.end, trans[2]) or self._is_between(sentence_context.start, trans[2], sentence_context.end):
+                lt = i, trans[0]
+
+            if ft is not None:
+                break
+        else:
+            found = False
+
+        if not found:
+            return None
+
+        if ft == lt or lt is None:
+            return ft[1]
+        else:
+            return ft[1] + ' ' + lt[1]
+
+    def _process_single_subtitle(self, this_sentence, start, end, translated_sentences):
+        if not this_sentence:
+            return
+
+        sentence_context = SentenceContext(
+            this_sentence, start, end)
+
+        words = [ww for ww in (w.strip()
+                               for w in re.split(r'\W+', this_sentence)) if ww]
+
+        if len(words) > 0:
+            translation = self._find_translation(
+                translated_sentences, sentence_context)
+            if translation:
+                sentence_context.translation = translation
+
+        for word in words:
+            yield (lt_pl.lemmatize(word.lower()), word, sentence_context)
+
+    def _process_lines(self, lines, translated_lines):
+
+        translated_sentences = self._get_translated_sentences(translated_lines)
+        has_started = False
+
         all_sentences = []
         start = (0, 0, 0, 0)
         end = (0, 0, 0, 0)
@@ -125,44 +156,9 @@ class WordCounter:
                     end = (int(m.group(5)), int(m.group(6)),
                            int(m.group(7)), int(m.group(8)))
             elif re.match(r'^\s*$', line):
+                all_sentences.extend(self._process_single_subtitle(
+                    this_sentence, start, end, translated_sentences))
 
-                if this_sentence:
-                    if sentences[-1] is not None:
-                        sentences[-1].after = this_sentence
-                    sent = None
-                    sentence_context = SentenceContext(
-                        this_sentence, start, end)
-                    for word in (ww for ww in (w.strip() for w in re.split(r'\W+', this_sentence)) if ww):
-                        sentence_context.after = previous_line
-                        sent = sentence_context
-                        all_sentences.append((lt_pl.lemmatize(
-                            word.lower()), word, sentence_context))
-                    if sent:
-
-                        ft = None
-                        lt = None
-                        found = True
-                        for i, trans in enumerate(translated_sentences):
-                            if trans[1] <= sentence_context.start and trans[2] >= sentence_context.start or sentence_context.start <= trans[1] and sentence_context.end >= trans[1]:
-                                ft = i, trans[0]
-                            if trans[1] <= sentence_context.end and trans[2] >= sentence_context.end:
-                                lt = i, trans[0]
-
-                            if ft is not None:
-                                break
-                        else:
-                            found = False
-
-                        if found:
-                            if ft == lt or lt is None:
-                                tt = ft[1]  # t1 + ' ' + ft[1] + ' ' + t2
-                            else:
-                                # t1 + ' ' + ft[1] + ' ' + lt[1] + ' ' + t2
-                                tt = ft[1] + ' ' + lt[1]
-
-                            sentence_context.translation = tt
-                        sentences.append(sent)
-                    previous_line = this_sentence
                 has_started = False
                 start = (0, 0, 0, 0)
                 end = (0, 0, 0, 0)
@@ -182,13 +178,16 @@ class WordCounter:
         return all_sentences
 
     def _load_words(self, file_name):
+        if not os.path.isfile(file_name):
+            return {}
+
         with open(file_name, 'r') as known_file:
             return {l.strip(): True for l in known_file.readlines()}
 
     def update_words(self, words, file_name):
         known = self._load_words(file_name)
 
-        with open(file_name, 'w') as known_file:
+        with open(file_name, 'w+') as known_file:
             for word in words:
                 known[word] = True
 
