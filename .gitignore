@@ -1,0 +1,5 @@
+__pycache__
+venv
+known.csv
+black_list.csv
+.DS_Store
