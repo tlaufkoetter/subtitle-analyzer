@@ -221,7 +221,6 @@ class WordCounter:
             'de.vtt') or file.endswith('de[cc].vtt')]
 
         words = {}
-        known = self.get_known_words()
         black_list = self._load_words(self.black_list_file_name)
 
         for vtt_file_name, vtt_translate_file_name in zip(vtt_files, vtt_translate_files):
@@ -249,5 +248,4 @@ class WordCounter:
         current_count = 0
         for word in sorted(words.values(), key=lambda w: w.count, reverse=True):
             current_count += word.count
-            if not known.get(word.word):
-                yield WordStats(word, current_count/total_occurances)
+            yield WordStats(word, current_count/total_occurances)

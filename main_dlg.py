@@ -3,6 +3,16 @@ import os
 import wx
 import pandas
 import re
+from pathlib import Path
+
+home_path = str(Path.home())
+user_path = os.path.join(home_path, '.subtitle_analyzer/')
+if not os.path.exists(user_path):
+    os.mkdir(user_path)
+
+word_cards_file = os.path.join(user_path, 'word_cards.csv')
+known_file = os.path.join(user_path, 'known.csv')
+black_list_file = os.path.join(user_path, 'black_list.csv')
 
 
 class WordFrame(wx.Frame):
@@ -47,7 +57,7 @@ class WordFrame(wx.Frame):
             is_word_card
         ]])
 
-        with open('word_cards.csv', mode='a') as f:
+        with open(word_cards_file, mode='a') as f:
             data.to_csv(f, header=False, index=False)
         self.callback()
 
@@ -86,7 +96,7 @@ class MainFrame(wx.Frame):
         self.SetSizer(main_sizer)
         self.SetSize(height=600, width=800)
 
-    def _update_list(self, update):
+    def _update_list(self, update, reload=False):
         if self.word_counter is None:
             return
 
@@ -98,10 +108,10 @@ class MainFrame(wx.Frame):
             sel_index = self.list_ctrl.GetNextSelected(sel_index)
 
         update(known_words)
-        self.load()
+        self.load(reload)
 
     def on_blacklist(self, event):
-        self._update_list(self.word_counter.update_black_list)
+        self._update_list(self.word_counter.update_black_list, True)
 
     def on_reload(self, event):
         self._update_list(self.word_counter.update_known_words)
@@ -123,8 +133,9 @@ class MainFrame(wx.Frame):
             return
 
         cards = {}
-        if os.path.isfile('word_cards.csv'):
-            csv = pandas.read_csv('word_cards.csv', index_col=False, header=None)
+        if os.path.isfile(word_cards_file):
+            csv = pandas.read_csv(
+                word_cards_file, index_col=False, header=None)
             for line in csv.iterrows():
                 word = line[1][0]
                 print(word)
@@ -142,9 +153,9 @@ class MainFrame(wx.Frame):
         if reload:
             self.occurances = list(self.word_counter.count_words())
 
-        self.occurances = [word for word in self.occurances if not cards.get(
-            word.word_occurance.word)]
         known_words = self.word_counter.get_known_words()
+        self.occurances = [word for word in self.occurances if not cards.get(
+            word.word_occurance.word) and word.word_occurance.word not in known_words]
         for index, word_stat in enumerate(self.occurances):
             word_occurance = word_stat.word_occurance
             word = word_occurance.word
@@ -164,7 +175,7 @@ class MainFrame(wx.Frame):
         with wx.DirDialog(self, message="Choose a folder") as dlg:
             if dlg.ShowModal() == wx.ID_OK:
                 self.word_counter = word_counter.WordCounter(
-                    'known.csv', 'black_list.csv', dlg.GetPath())
+                    known_file, black_list_file, dlg.GetPath())
             dlg.Destroy()
 
         self.load()
