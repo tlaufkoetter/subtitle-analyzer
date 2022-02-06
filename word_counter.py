@@ -98,8 +98,8 @@ class WordCounter:
             self.has_started = True
 
     def __init__(self, knowledge_base: KnowledgeBase, subtitles_dir):
-        self.subtitles_dir = subtitles_dir
-        self.knowledge_base = knowledge_base
+        self.__subtitles_dir = subtitles_dir
+        self.__knowledge_base = knowledge_base
 
     def __parse_sentences(self, translated_lines, get_sentences):
         context = self.__Context()
@@ -171,8 +171,8 @@ class WordCounter:
 
     def count_words(self) -> Generator[WordStats, None, None]:
         files = []
-        for file in os.listdir(self.subtitles_dir):
-            files.append(self.subtitles_dir + "/" + file)
+        for file in os.listdir(self.__subtitles_dir):
+            files.append(self.__subtitles_dir + "/" + file)
         files = sorted(files)
         vtt_files = [file for file in files if file.endswith(
             'pl.vtt') or file.endswith('pl[cc].vtt')]
@@ -180,7 +180,7 @@ class WordCounter:
             'de.vtt') or file.endswith('de[cc].vtt')]
 
         words = {}
-        black_list = self.knowledge_base.get_black_list()
+        black_list = self.__knowledge_base.get_black_list()
 
         for vtt_file_name, vtt_translate_file_name in zip(vtt_files, vtt_translate_files):
             lines = []
