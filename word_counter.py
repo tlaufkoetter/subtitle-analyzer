@@ -57,46 +57,72 @@ class WordStats:
 
 
 class WordCounter:
+    class __Context:
+        def __init__(self):
+            self.sentences = []
+            self.__reset_block()
+
+        def __reset_block(self):
+            self.has_started = False
+            self.start = (0, 0, 0, 0)
+            self.end = (0, 0, 0, 0)
+            self.this_sentence = None
+
+        def finish_block(self, get_sentences):
+            if self.this_sentence:
+                self.sentences.extend(get_sentences(
+                    self.this_sentence, self.start, self.end))
+
+            self.__reset_block()
+
+        def set_timestamp(self, line):
+            m = re.match(
+                r'^(\d\d):(\d\d):(\d\d).(\d\d\d) --> (\d\d):(\d\d):(\d\d).(\d\d\d)', line)
+            if m:
+                self.start = (int(m.group(1)), int(m.group(2)),
+                              int(m.group(3)), int(m.group(4)))
+                self.end = (int(m.group(5)), int(m.group(6)),
+                            int(m.group(7)), int(m.group(8)))
+
+        def parse_line(self, line):
+            text_line = re.sub(r'<[^>]+>', '', line)
+            text_line = re.sub(r'\[[^\]]+\]', '', text_line)
+            text_line = re.sub(r'- ?', '', text_line)
+            text_line = text_line.strip()
+            if not self.this_sentence:
+                self.this_sentence = text_line
+            else:
+                self.this_sentence += ' ' + text_line
+
+        def start_block(self):
+            self.has_started = True
+
     def __init__(self, knowledge_base: KnowledgeBase, subtitles_dir):
         self.subtitles_dir = subtitles_dir
         self.knowledge_base = knowledge_base
 
-    def __get_translated_sentences(self, translated_lines):
-        has_started = False
-        start = (0, 0, 0, 0)
-        end = (0, 0, 0, 0)
-        this_sentence = None
-        sentences = []
+    def __parse_sentences(self, translated_lines, get_sentences):
+        context = self.__Context()
         for line in translated_lines:
             if re.match(r'^\s*$', line):
-                if this_sentence:
-                    sentences.append((this_sentence, start, end))
-                has_started = False
-                start = (0, 0, 0, 0)
-                end = (0, 0, 0, 0)
-                this_sentence = None
-            elif has_started and re.match(r'^\d\d:\d\d:\d\d', line):
-                m = re.match(
-                    r'^(\d\d):(\d\d):(\d\d).(\d\d\d) --> (\d\d):(\d\d):(\d\d).(\d\d\d)', line)
-                if m:
-                    start = (int(m.group(1)), int(m.group(2)),
-                             int(m.group(3)), int(m.group(4)))
-                    end = (int(m.group(5)), int(m.group(6)),
-                           int(m.group(7)), int(m.group(8)))
-            elif has_started:
-                text_line = re.sub(r'<[^>]+>', '', line)
-                text_line = re.sub(r'\[[^\]]+\]', '', text_line)
-                text_line = re.sub(r'- ?', '', text_line)
-                text_line = text_line.strip()
-                if not this_sentence:
-                    this_sentence = text_line
-                else:
-                    this_sentence += ' ' + text_line
-
+                context.finish_block(get_sentences)
+            elif context.has_started and re.match(r'^\d\d:\d\d:\d\d', line):
+                context.set_timestamp(line)
+            elif context.has_started:
+                context.parse_line(line)
             elif re.match(r'^\d+$', line):
-                has_started = True
+                context.start_block()
 
-        return sentences
+        return context.sentences
+
+    def __get_translated_sentences(self, translated_lines):
+        return self.__parse_sentences(translated_lines, lambda this_sentence, start, end: [
+                                     (this_sentence, start, end)])
+
+    def __process_lines(self, lines, translated_lines):
+        translated_sentences = self.__get_translated_sentences(
+            translated_lines)
+        return self.__parse_sentences(lines, lambda this_sentence, start, end: self.__process_single_subtitle(this_sentence, start, end, translated_sentences))
 
     def __is_between(self, lower_bound, value, upper_bound):
         return lower_bound <= value and value <= upper_bound
@@ -142,46 +168,6 @@ class WordCounter:
 
         for word in words:
             yield (lt_pl.lemmatize(word.lower()), word, sentence_context)
-
-    def __process_lines(self, lines, translated_lines):
-
-        translated_sentences = self.__get_translated_sentences(translated_lines)
-        has_started = False
-
-        all_sentences = []
-        start = (0, 0, 0, 0)
-        end = (0, 0, 0, 0)
-        this_sentence = None
-        for line in lines:
-            if has_started and re.match(r'^\d\d:\d\d:\d\d', line):
-                m = re.match(
-                    r'^(\d\d):(\d\d):(\d\d).(\d\d\d) --> (\d\d):(\d\d):(\d\d).(\d\d\d)', line)
-                if m:
-                    start = (int(m.group(1)), int(m.group(2)),
-                             int(m.group(3)), int(m.group(4)))
-                    end = (int(m.group(5)), int(m.group(6)),
-                           int(m.group(7)), int(m.group(8)))
-            elif re.match(r'^\s*$', line):
-                all_sentences.extend(self.__process_single_subtitle(
-                    this_sentence, start, end, translated_sentences))
-
-                has_started = False
-                start = (0, 0, 0, 0)
-                end = (0, 0, 0, 0)
-                this_sentence = None
-            elif has_started:
-                text_line = re.sub(r'<[^>]+>', '', line)
-                text_line = re.sub(r'\[[^\]]+\]', '', text_line)
-                text_line = text_line.replace('- ', '')
-                text_line = text_line.strip()
-                if this_sentence:
-                    this_sentence += ' ' + text_line
-                else:
-                    this_sentence = text_line
-
-            elif re.match(r'^\d+$', line):
-                has_started = True
-        return all_sentences
 
     def count_words(self) -> Generator[WordStats, None, None]:
         files = []
