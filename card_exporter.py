@@ -25,7 +25,6 @@ class CardExporter:
 
             for line in csv.iterrows():
                 word = line[1][0]
-                print(word)
                 if word:
                     cards[word.lower()] = True
 
