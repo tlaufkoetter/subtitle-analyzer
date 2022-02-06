@@ -37,10 +37,18 @@ class WordOccurance:
     def _average(self, lis):
         return sum(lis) / len(lis)
 
-    def get_context(self, word_occurances) -> SentenceContext:
-        di = ((context, sum([(word_occurances.get(lt_pl.lemmatize(word.lower())) or 0) for word in re.split(
-            r'\W+', str(context))])) for context in self.sentence_contexts)
-        return max(di, key=lambda c: c[1])[0]
+    def calc(self, known_words, context):
+        wordsss = [(1 if known_words.get(lt_pl.lemmatize(word.lower())) else 0) for word in re.split(
+            r'\W+', str(context))]
+        word_count = len(wordsss)
+        known_words_count = sum(wordsss)
+        unknown_words_count = word_count - known_words_count
+        return unknown_words_count, word_count/float(known_words_count) if known_words_count > 0 else 1.0
+
+    def get_context(self, known_words):
+        di = ((context, self.calc(known_words, context))
+              for context in self.sentence_contexts)
+        return sorted(di, key=lambda c: c[1])
 
 
 class WordStats:
@@ -199,6 +207,9 @@ class WordCounter:
     def update_black_list(self, black_list):
         self.update_words(black_list, self.black_list_file_name)
 
+    def get_known_words(self):
+        return self._load_words(self.known_words_file_name)
+
     def count_words(self) -> Generator[WordStats, None, None]:
         files = []
         for file in os.listdir(self.subtitles_dir):
@@ -210,7 +221,7 @@ class WordCounter:
             'de.vtt') or file.endswith('de[cc].vtt')]
 
         words = {}
-        known = self._load_words(self.known_words_file_name)
+        known = self.get_known_words()
         black_list = self._load_words(self.black_list_file_name)
 
         for vtt_file_name, vtt_translate_file_name in zip(vtt_files, vtt_translate_files):

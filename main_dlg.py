@@ -18,11 +18,11 @@ class WordFrame(wx.Frame):
         main_sizer.Add(self.translated_word_text, flag=wx.EXPAND)
 
         self.sentence_text = wx.TextCtrl(
-            self, size=(300, 200), value=sentence, style=wx.TE_MULTILINE)
+            self, size=(350, 300), value=sentence, style=wx.TE_MULTILINE)
         main_sizer.Add(self.sentence_text, flag=wx.EXPAND)
 
         self.translation_text = wx.TextCtrl(
-            self, size=(300, 200),  value=translation, style=wx.TE_MULTILINE)
+            self, size=(350, 300),  value=translation, style=wx.TE_MULTILINE)
         main_sizer.Add(self.translation_text, flag=wx.EXPAND)
 
         word_button = wx.Button(self, label='Word Card')
@@ -106,11 +106,10 @@ class MainFrame(wx.Frame):
         index = item.Id
 
         word = self.occurances[index]
-        occs = {
-            word.word_occurance.word: word.word_occurance.count for word in self.occurances}
-        context = word.word_occurance.get_context(occs)
+        contexts = word.word_occurance.get_context(
+            self.word_counter.get_known_words())
         word_window = WordFrame(
-            self, word.word_occurance.word, str(context), context.translation, lambda: self.load(False))
+            self, word.word_occurance.word, str.join('\n\n', [str(context[0]) for context in contexts][:10]), str.join('\n\n', [context[0].translation for context in contexts][:10]), lambda: self.load(False))
 
         word_window.Show()
 
@@ -126,6 +125,7 @@ class MainFrame(wx.Frame):
                     if word:
                         cards[word.lower()] = True
 
+        if os.path.isfile('sentence_cards.csv'):
             with open('sentence_cards.csv', 'r') as cards_file:
                 for line in cards_file.readlines():
                     word = line.split('\t')[0]
@@ -145,8 +145,7 @@ class MainFrame(wx.Frame):
 
         self.occurances = [word for word in self.occurances if not cards.get(
             word.word_occurance.word)]
-        occs = {
-            word.word_occurance.word: word.word_occurance.count for word in self.occurances}
+        known_words = self.word_counter.get_known_words()
         for index, word_stat in enumerate(self.occurances):
             word_occurance = word_stat.word_occurance
             word = word_occurance.word
@@ -157,7 +156,7 @@ class MainFrame(wx.Frame):
             self.list_ctrl.SetItem(
                 index, 3, "{:.2f}".format(100*word_stat.percentile))
 
-            context = word_occurance.get_context(occs)
+            context = word_occurance.get_context(known_words)[0][0]
 
             self.list_ctrl.SetItem(index, 4, str(context))
             self.list_ctrl.SetItem(index, 5, context.translation or '')
