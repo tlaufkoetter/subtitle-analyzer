@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 home_path = str(Path.home())
-user_path = os.path.join(home_path, '.subtitle_analyzer/')
+user_path = os.path.join(home_path, 'subtitle_analyzer/')
 if not os.path.exists(user_path):
     os.mkdir(user_path)
 
