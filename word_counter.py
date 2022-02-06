@@ -4,6 +4,8 @@ from typing import Generator
 import lemmagen3
 import re
 
+from knowledge_base import KnowledgeBase
+
 lt_pl = lemmagen3.Lemmatizer('pl')
 
 
@@ -34,10 +36,7 @@ class WordOccurance:
 
         self.sentence_contexts.append(sentence_context)
 
-    def _average(self, lis):
-        return sum(lis) / len(lis)
-
-    def calc(self, known_words, context):
+    def __calc(self, known_words, context):
         wordsss = [(1 if known_words.get(lt_pl.lemmatize(word.lower())) else 0) for word in re.split(
             r'\W+', str(context))]
         word_count = len(wordsss)
@@ -46,7 +45,7 @@ class WordOccurance:
         return unknown_words_count, word_count/float(known_words_count) if known_words_count > 0 else 1.0
 
     def get_context(self, known_words):
-        di = ((context, self.calc(known_words, context))
+        di = ((context, self.__calc(known_words, context))
               for context in self.sentence_contexts)
         return sorted(di, key=lambda c: c[1])
 
@@ -58,12 +57,11 @@ class WordStats:
 
 
 class WordCounter:
-    def __init__(self, known_words_file_name, black_list_file_name, subtitles_dir):
-        self.known_words_file_name = known_words_file_name
+    def __init__(self, knowledge_base: KnowledgeBase, subtitles_dir):
         self.subtitles_dir = subtitles_dir
-        self.black_list_file_name = black_list_file_name
+        self.knowledge_base = knowledge_base
 
-    def _get_translated_sentences(self, translated_lines):
+    def __get_translated_sentences(self, translated_lines):
         has_started = False
         start = (0, 0, 0, 0)
         end = (0, 0, 0, 0)
@@ -100,17 +98,17 @@ class WordCounter:
 
         return sentences
 
-    def _is_between(self, lower_bound, value, upper_bound):
+    def __is_between(self, lower_bound, value, upper_bound):
         return lower_bound <= value and value <= upper_bound
 
-    def _find_translation(self, translated_sentences, sentence_context):
+    def __find_translation(self, translated_sentences, sentence_context):
         ft = None
         lt = None
         found = True
         for i, trans in enumerate(translated_sentences):
-            if self._is_between(trans[1], sentence_context.start, trans[2]) or self._is_between(sentence_context.start, trans[1], sentence_context.end):
+            if self.__is_between(trans[1], sentence_context.start, trans[2]) or self.__is_between(sentence_context.start, trans[1], sentence_context.end):
                 ft = i, trans[0]
-            if self._is_between(trans[1], sentence_context.end, trans[2]) or self._is_between(sentence_context.start, trans[2], sentence_context.end):
+            if self.__is_between(trans[1], sentence_context.end, trans[2]) or self.__is_between(sentence_context.start, trans[2], sentence_context.end):
                 lt = i, trans[0]
 
             if ft is not None:
@@ -126,7 +124,7 @@ class WordCounter:
         else:
             return ft[1] + ' ' + lt[1]
 
-    def _process_single_subtitle(self, this_sentence, start, end, translated_sentences):
+    def __process_single_subtitle(self, this_sentence, start, end, translated_sentences):
         if not this_sentence:
             return
 
@@ -137,7 +135,7 @@ class WordCounter:
                                for w in re.split(r'\W+', this_sentence)) if ww]
 
         if len(words) > 0:
-            translation = self._find_translation(
+            translation = self.__find_translation(
                 translated_sentences, sentence_context)
             if translation:
                 sentence_context.translation = translation
@@ -145,9 +143,9 @@ class WordCounter:
         for word in words:
             yield (lt_pl.lemmatize(word.lower()), word, sentence_context)
 
-    def _process_lines(self, lines, translated_lines):
+    def __process_lines(self, lines, translated_lines):
 
-        translated_sentences = self._get_translated_sentences(translated_lines)
+        translated_sentences = self.__get_translated_sentences(translated_lines)
         has_started = False
 
         all_sentences = []
@@ -164,7 +162,7 @@ class WordCounter:
                     end = (int(m.group(5)), int(m.group(6)),
                            int(m.group(7)), int(m.group(8)))
             elif re.match(r'^\s*$', line):
-                all_sentences.extend(self._process_single_subtitle(
+                all_sentences.extend(self.__process_single_subtitle(
                     this_sentence, start, end, translated_sentences))
 
                 has_started = False
@@ -185,31 +183,6 @@ class WordCounter:
                 has_started = True
         return all_sentences
 
-    def _load_words(self, file_name):
-        if not os.path.isfile(file_name):
-            return {}
-
-        with open(file_name, 'r') as known_file:
-            return {l.strip(): True for l in known_file.readlines()}
-
-    def update_words(self, words, file_name):
-        known = self._load_words(file_name)
-
-        with open(file_name, 'w+') as known_file:
-            for word in words:
-                known[word] = True
-
-            known_file.writelines([k + '\n' for k in known.keys()])
-
-    def update_known_words(self, known_words):
-        self.update_words(known_words, self.known_words_file_name)
-
-    def update_black_list(self, black_list):
-        self.update_words(black_list, self.black_list_file_name)
-
-    def get_known_words(self):
-        return self._load_words(self.known_words_file_name)
-
     def count_words(self) -> Generator[WordStats, None, None]:
         files = []
         for file in os.listdir(self.subtitles_dir):
@@ -221,7 +194,7 @@ class WordCounter:
             'de.vtt') or file.endswith('de[cc].vtt')]
 
         words = {}
-        black_list = self._load_words(self.black_list_file_name)
+        black_list = self.knowledge_base.get_black_list()
 
         for vtt_file_name, vtt_translate_file_name in zip(vtt_files, vtt_translate_files):
             lines = []
@@ -232,11 +205,7 @@ class WordCounter:
             with open(vtt_translate_file_name) as vtt_file:
                 translated_lines = vtt_file.readlines()
 
-            print(vtt_file_name)
-            print(vtt_translate_file_name)
-            print('\n')
-
-            for word in self._process_lines(lines, translated_lines):
+            for word in self.__process_lines(lines, translated_lines):
                 if black_list.get(word[0]):
                     continue
                 if not words.get(word[0]):
