@@ -1,6 +1,8 @@
 import word_counter
 import os
 import wx
+import pandas
+import re
 
 
 class WordFrame(wx.Frame):
@@ -36,22 +38,25 @@ class WordFrame(wx.Frame):
         self.SetSizer(main_sizer)
         self.SetSize(height=600, width=800)
 
-    def _export_to_csv(self, file):
-        with open(file, 'a+') as word_cards_file:
-            word_cards_file.write('{}\t{}\t{}\t{}\n'.format(
-                self.word_text.GetValue(),
-                self.translated_word_text.GetValue(),
-                self.sentence_text.GetValue(),
-                self.translation_text.GetValue()
-            ))
+    def _export_to_csv(self, is_word_card):
+        data = pandas.DataFrame([[
+            re.sub(r'\n+', '', self.word_text.GetValue()).strip(),
+            re.sub(r'\n+', '', self.translated_word_text.GetValue()).strip(),
+            re.sub(r'\n+', '', self.sentence_text.GetValue()).strip(),
+            re.sub(r'\n+', '', self.translation_text.GetValue()).strip(),
+            is_word_card
+        ]])
+
+        with open('word_cards.csv', mode='a') as f:
+            data.to_csv(f, header=False, index=False)
         self.callback()
 
     def on_word(self, event):
-        self._export_to_csv('word_cards.csv')
+        self._export_to_csv(True)
         self.Close()
 
     def on_sentence(self, event):
-        self._export_to_csv('sentence_cards.csv')
+        self._export_to_csv(False)
         self.Close()
 
 
@@ -119,18 +124,12 @@ class MainFrame(wx.Frame):
 
         cards = {}
         if os.path.isfile('word_cards.csv'):
-            with open('word_cards.csv', 'r') as cards_file:
-                for line in cards_file.readlines():
-                    word = line.split('\t')[0]
-                    if word:
-                        cards[word.lower()] = True
-
-        if os.path.isfile('sentence_cards.csv'):
-            with open('sentence_cards.csv', 'r') as cards_file:
-                for line in cards_file.readlines():
-                    word = line.split('\t')[0]
-                    if word:
-                        cards[word.lower()] = True
+            csv = pandas.read_csv('word_cards.csv', index_col=False, header=None)
+            for line in csv.iterrows():
+                word = line[1][0]
+                print(word)
+                if word:
+                    cards[word.lower()] = True
 
         self.list_ctrl.ClearAll()
         self.list_ctrl.InsertColumn(0, 'rank')
